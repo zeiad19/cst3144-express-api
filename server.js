@@ -40,24 +40,30 @@ app.post('/orders', (req, res) => {
   res.status(201).json({ ok: true, orderId: order.id });
 });
 
-// PUT /lessons/:id
+// ✅ PUT /lessons/:id (tolerant match + accepts "spaces")
 app.put('/lessons/:id', (req, res) => {
-  const id = req.params.id;
-  const idx = lessons.findIndex(l => l.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Lesson not found' });
+  const id = decodeURIComponent(String(req.params.id)).trim().toLowerCase();
+  const idx = lessons.findIndex(l => String(l.id).trim().toLowerCase() === id);
+  if (idx === -1) return res.status(404).json({ error: 'Lesson not found', tried: req.params.id });
+
+  // allow FE to send either "space" or "spaces"
+  const body = { ...req.body };
+  if (typeof body.spaces === 'number' && typeof body.space !== 'number') {
+    body.space = body.spaces;
+  }
 
   const allowed = ['topic', 'location', 'price', 'space'];
-  for (const k of Object.keys(req.body || {})) {
+  for (const k of Object.keys(body)) {
     if (!allowed.includes(k)) return res.status(400).json({ error: `Attribute "${k}" not allowed` });
   }
-  if ('price' in req.body && typeof req.body.price !== 'number') {
+  if ('price' in body && typeof body.price !== 'number') {
     return res.status(400).json({ error: 'price must be a number' });
   }
-  if ('space' in req.body && typeof req.body.space !== 'number') {
+  if ('space' in body && typeof body.space !== 'number') {
     return res.status(400).json({ error: 'space must be a number' });
   }
 
-  lessons[idx] = { ...lessons[idx], ...req.body };
+  lessons[idx] = { ...lessons[idx], ...body };
   res.json({ ok: true, lesson: lessons[idx] });
 });
 
@@ -89,7 +95,7 @@ app.get('/health', (req, res) => {
 });
 
 /* ----------------------- */
-/* ✅ NEW: 404 + error handlers */
+/* 404 + error handlers    */
 /* ----------------------- */
 
 // 404 for any unmatched route
