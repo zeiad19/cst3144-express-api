@@ -72,10 +72,13 @@ app.get('/images/:file', (req, res) => {
 
 // root help
 app.get('/', (_, res) =>
-  res.json({ status: 'OK', routes: ['GET /lessons', 'POST /orders', 'PUT /lessons/:id', 'GET /images/:file', 'GET /health'] })
+  res.json({
+    status: 'OK',
+    routes: ['GET /lessons', 'POST /orders', 'PUT /lessons/:id', 'GET /images/:file', 'GET /health'],
+  })
 );
 
-// ✅ NEW: health check
+// ✅ health check
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
@@ -83,6 +86,21 @@ app.get('/health', (req, res) => {
     env: process.env.NODE_ENV || 'dev',
     timestamp: new Date().toISOString(),
   });
+});
+
+/* ----------------------- */
+/* ✅ NEW: 404 + error handlers */
+/* ----------------------- */
+
+// 404 for any unmatched route
+app.use((req, res, next) => {
+  res.status(404).json({ error: 'Not found', path: req.originalUrl });
+});
+
+// central error handler (kept last)
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
