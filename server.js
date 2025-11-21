@@ -1,73 +1,94 @@
 const express = require('express');
-const cors = require('cors'); // ✅ use cors package
+const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
+
+const { getDb, initMongo } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// JSON + CORS
 app.use(express.json());
-app.use(cors()); // ✅ enable CORS for all routes
+app.use(cors());
 
-// logger middleware
+// logger
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const ms = Date.now() - start;
-    console.log(
-      `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} - ${ms}ms`
-    );
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} - ${ms}ms`);
   });
   next();
 });
 
-const lessons = require('./seed/lessons.json');
-const orders = [];
+// ---------- API ----------
 
-// GET /lessons
-app.get('/lessons', (req, res) => res.json(lessons));
-
-// POST /orders
-app.post('/orders', (req, res) => {
-  const { name, phone, items } = req.body || {};
-  if (!name || !phone || !Array.isArray(items) || items.length === 0) {
-    return res
-      .status(400)
-      .json({ error: 'Invalid order payload. Expect { name, phone, items:[{id, qty}] }' });
+// GET /lessons (list)
+app.get('/lessons', async (req, res) => {
+  try {
+    const db = await getDb();
+    const lessons = await db.collection('lessons').find({}).toArray();
+    res.json(lessons);
+  } catch (err) {
+    console.error('GET /lessons:', err?.message || err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  const order = { id: `o_${Date.now()}`, name, phone, items, createdAt: new Date().toISOString() };
-  orders.push(order);
-  res.status(201).json({ ok: true, orderId: order.id });
 });
 
-// ✅ PUT /lessons/:id (tolerant match + accepts "spaces")
-app.put('/lessons/:id', (req, res) => {
-  const id = decodeURIComponent(String(req.params.id)).trim().toLowerCase();
-  const idx = lessons.findIndex(l => String(l.id).trim().toLowerCase() === id);
-  if (idx === -1) return res.status(404).json({ error: 'Lesson not found', tried: req.params.id });
+// POST /orders  { name, phone, items:[{id, qty}] }
+app.post('/orders', async (req, res) => {
+  try {
+    const { name, phone, items } = req.body || {};
+    if (!name || !/^[a-zA-Z\s]+$/.test(name)) return res.status(400).json({ error: 'Invalid name' });
+    if (!phone || !/^\d+$/.test(phone)) return res.status(400).json({ error: 'Invalid phone' });
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Invalid items' });
 
-  // allow FE to send either "space" or "spaces"
-  const body = { ...req.body };
-  if (typeof body.spaces === 'number' && typeof body.space !== 'number') {
-    body.space = body.spaces;
+    const db = await getDb();
+    const order = {
+      name, phone, items,
+      createdAt: new Date().toISOString()
+    };
+    const result = await db.collection('orders').insertOne(order);
+    res.status(201).json({ ok: true, orderId: String(result.insertedId) });
+  } catch (err) {
+    console.error('POST /orders:', err?.message || err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-
-  const allowed = ['topic', 'location', 'price', 'space'];
-  for (const k of Object.keys(body)) {
-    if (!allowed.includes(k)) return res.status(400).json({ error: `Attribute "${k}" not allowed` });
-  }
-  if ('price' in body && typeof body.price !== 'number') {
-    return res.status(400).json({ error: 'price must be a number' });
-  }
-  if ('space' in body && typeof body.space !== 'number') {
-    return res.status(400).json({ error: 'space must be a number' });
-  }
-
-  lessons[idx] = { ...lessons[idx], ...body };
-  res.json({ ok: true, lesson: lessons[idx] });
 });
 
-// static image middleware
+// PUT /lessons/:id  (update price/space)
+app.put('/lessons/:id', async (req, res) => {
+  try {
+    const idParam = String(req.params.id).trim();
+    const $set = {};
+    if (typeof req.body.space === 'number') $set.space = req.body.space;
+    if (typeof req.body.spaces === 'number') $set.space = req.body.spaces;
+    if (typeof req.body.price === 'number') $set.price = req.body.price;
+
+    if (!Object.keys($set).length) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+
+    const db = await getDb();
+    const result = await db.collection('lessons').findOneAndUpdate(
+      { id: idParam },
+      { $set },
+      { returnDocument: 'after' }
+    );
+
+    if (!result.value) {
+      return res.status(404).json({ error: 'Lesson not found', tried: idParam });
+    }
+    res.json({ ok: true, lesson: result.value });
+  } catch (err) {
+    console.error('PUT /lessons/:id:', err?.message || err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// static images (optional)
 app.get('/images/:file', (req, res) => {
   const filePath = path.join(__dirname, 'public', 'images', req.params.file);
   fs.stat(filePath, (err, stats) => {
@@ -76,37 +97,37 @@ app.get('/images/:file', (req, res) => {
   });
 });
 
-// root help
-app.get('/', (_, res) =>
+// root
+app.get('/', (_, res) => {
   res.json({
     status: 'OK',
-    routes: ['GET /lessons', 'POST /orders', 'PUT /lessons/:id', 'GET /images/:file', 'GET /health'],
-  })
-);
-
-// ✅ health check
-app.get('/health', (req, res) => {
-  res.json({
-    ok: true,
-    uptime: process.uptime(),
-    env: process.env.NODE_ENV || 'dev',
-    timestamp: new Date().toISOString(),
+    routes: ['GET /lessons', 'POST /orders', 'PUT /lessons/:id', 'GET /images/:file', 'GET /health']
   });
 });
 
-/* ----------------------- */
-/* 404 + error handlers    */
-/* ----------------------- */
+// health (pings DB)
+app.get('/health', async (req, res) => {
+  try {
+    const db = await getDb();
+    await db.command({ ping: 1 });
+    res.json({ ok: true, env: process.env.NODE_ENV || 'dev', ts: new Date().toISOString() });
+  } catch (err) {
+    res.json({ ok: false, error: err?.message || String(err) });
+  }
+});
 
-// 404 for any unmatched route
-app.use((req, res, next) => {
+// 404
+app.use((req, res) => {
   res.status(404).json({ error: 'Not found', path: req.originalUrl });
 });
 
-// central error handler (kept last)
+// errors
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
+
+// initialize DB once
+initMongo().catch(() => {});
