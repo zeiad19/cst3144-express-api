@@ -1,53 +1,57 @@
-const { MongoClient, ServerApiVersion } = require('mongodb');
+// db.js
+require('dotenv').config();
+const { MongoClient } = require('mongodb');
+
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = process.env.DB_NAME || 'cst3144';
 
 let client;
-let cachedDb;
+let db;
 
-const uri = process.env.MONGODB_URI;
-const dbName = process.env.DB_NAME || 'cst3144';
-
+/**
+ * Initialise a single MongoDB client and cache the db handle.
+ * Call this once on server start.
+ */
 async function initMongo() {
-  if (!uri) throw new Error('MONGODB_URI env var missing');
+  if (db) return db;
+  if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI is missing – set it in your .env or Render env vars.');
+  }
 
-  if (cachedDb) return cachedDb;
-
-  client = new MongoClient(uri, {
-    serverApi: {
-      version: ServerApiVersion.v1,
-      strict: true,
-      deprecationErrors: true,
-    },
-    connectTimeoutMS: 30000,
-    serverSelectionTimeoutMS: 30000,
-    socketTimeoutMS: 60000,
-    retryWrites: true,
+  client = new MongoClient(MONGODB_URI, {
+    // Reasonable timeouts so your app doesn't hang forever
+    serverSelectionTimeoutMS: 20000,
+    socketTimeoutMS: 30000,
   });
 
-  try {
-    console.log('[mongo] connecting…');
-    await client.connect();
-    console.log('[mongo] connected, pinging…');
-    await client.db(dbName).command({ ping: 1 });
-    console.log('[mongo] ping ok');
-    cachedDb = client.db(dbName);
-    return cachedDb;
-  } catch (err) {
-    console.error('[mongo] connect failed:', err?.message || err);
-    if (err?.reason) console.error('[mongo] reason:', err.reason);
-    throw err;
+  await client.connect();
+  db = client.db(DB_NAME);
+  return db;
+}
+
+/**
+ * Get the cached db handle after initMongo() has run.
+ */
+function getDb() {
+  if (!db) {
+    throw new Error('MongoDB not initialised. Call initMongo() first.');
+  }
+  return db;
+}
+
+/**
+ * Close the underlying client (useful for tests/scripts).
+ */
+async function closeMongo() {
+  if (client) {
+    await client.close();
+    client = null;
+    db = null;
   }
 }
 
-async function getDb() {
-  return cachedDb || initMongo();
-}
-
-async function closeMongo() {
-  try {
-    if (client) await client.close();
-  } catch (_) {}
-  client = undefined;
-  cachedDb = undefined;
-}
-
-module.exports = { initMongo, getDb, closeMongo };
+module.exports = {
+  initMongo,
+  getDb,
+  closeMongo,
+};
