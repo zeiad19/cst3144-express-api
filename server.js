@@ -62,6 +62,41 @@ app.get('/lessons', async (req, res) => {
   }
 });
 
+// GET /search?query=...
+// search in topic, location, and optionally by numeric price/space
+app.get('/search', async (req, res) => {
+  try {
+    const db = getDb();
+    const raw = (req.query.query || '').trim();
+
+    if (!raw) {
+      const all = await db.collection('lessons').find({}).toArray();
+      return res.json(all);
+    }
+
+    const regex = new RegExp(raw, 'i');
+    const maybeNumber = Number(raw);
+    const numFilter =
+      !Number.isNaN(maybeNumber)
+        ? [{ price: maybeNumber }, { space: maybeNumber }]
+        : [];
+
+    const filter = {
+      $or: [
+        { topic: regex },
+        { location: regex },
+        ...numFilter
+      ]
+    };
+
+    const results = await db.collection('lessons').find(filter).toArray();
+    res.json(results);
+  } catch (err) {
+    console.error('GET /search error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // POST /orders
 // body: { name, phone, items: [{ id, qty }] }
 app.post('/orders', async (req, res) => {
@@ -94,7 +129,7 @@ app.post('/orders', async (req, res) => {
 /* ------------ PUT /lessons/:id ------------ */
 /*
   PUT /lessons/Some-Id
-  body: { space: 4 }   // or topic/location/price as needed
+  body: { space: 4 }   // or topic/location/price
 */
 app.put('/lessons/:id', async (req, res) => {
   try {
@@ -106,12 +141,10 @@ app.put('/lessons/:id', async (req, res) => {
       return res.status(400).json({ error: 'Missing "id" parameter in URL' });
     }
 
-    // ignore id in body if sent
     if ('id' in body) {
       delete body.id;
     }
 
-    // normalise "spaces" -> "space"
     if (typeof body.spaces === 'number' && typeof body.space !== 'number') {
       body.space = body.spaces;
       delete body.spaces;
@@ -169,6 +202,7 @@ app.get('/', (req, res) => {
     routes: [
       'GET /health',
       'GET /lessons',
+      'GET /search?query=',
       'POST /orders',
       'PUT /lessons/:id',
       'GET /images/:file',
