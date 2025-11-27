@@ -12,10 +12,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 /* ------------ Middleware ------------ */
-app.use(express.json());
-app.use(cors());
 
-// Tiny request logger
+app.use(cors());
+app.use(express.json());
+
+// simple request logger
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -29,17 +30,19 @@ app.use((req, res, next) => {
 
 /* ------------ Routes ------------ */
 
-// Health check: confirms server is up and Mongo can be reached
+// Health check
 app.get('/health', async (req, res) => {
   try {
-    const db = getDb();           // throws if not init'd
-    await db.command({ ping: 1 }); // verifies connectivity
+    const db = getDb();
+    await db.command({ ping: 1 });
+
     res.json({
       ok: true,
       db: process.env.DB_NAME || 'cst3144',
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
+    console.error('/health error:', err);
     res.status(500).json({
       ok: false,
       error: err.message || 'Health check failed',
@@ -47,7 +50,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// GET /lessons -> list all lessons
+// GET /lessons
 app.get('/lessons', async (req, res) => {
   try {
     const db = getDb();
@@ -59,11 +62,12 @@ app.get('/lessons', async (req, res) => {
   }
 });
 
-// POST /orders -> save a new order
-// Expected body: { name, phone, items: [{ id, qty }], total? }
+// POST /orders
+// body: { name, phone, items: [{ id, qty }] }
 app.post('/orders', async (req, res) => {
   try {
     const { name, phone, items } = req.body || {};
+
     if (!name || !phone || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         error: 'Invalid order payload. Expect { name, phone, items:[{id, qty}] }',
@@ -87,19 +91,32 @@ app.post('/orders', async (req, res) => {
   }
 });
 
-// PUT /lessons/:id -> update allowed fields on a lesson (e.g., space/spaces, price, topic, location)
+/* ------------ PUT /lessons/:id ------------ */
+/*
+  PUT /lessons/Some-Id
+  body: { space: 4 }   // or topic/location/price as needed
+*/
 app.put('/lessons/:id', async (req, res) => {
   try {
-    const idParam = String(req.params.id).trim();
-    const body = { ...req.body };
+    const db = getDb();
+    const id = req.params.id;
+    const body = req.body || {};
 
-    // Accept "spaces" or "space" – normalise to "space"
+    if (!id) {
+      return res.status(400).json({ error: 'Missing "id" parameter in URL' });
+    }
+
+    // ignore id in body if sent
+    if ('id' in body) {
+      delete body.id;
+    }
+
+    // normalise "spaces" -> "space"
     if (typeof body.spaces === 'number' && typeof body.space !== 'number') {
       body.space = body.spaces;
       delete body.spaces;
     }
 
-    // Only allow these fields to be updated
     const allowed = ['topic', 'location', 'price', 'space'];
     for (const key of Object.keys(body)) {
       if (!allowed.includes(key)) {
@@ -107,7 +124,6 @@ app.put('/lessons/:id', async (req, res) => {
       }
     }
 
-    // Type checks for numeric fields
     if ('price' in body && typeof body.price !== 'number') {
       return res.status(400).json({ error: 'price must be a number' });
     }
@@ -115,15 +131,16 @@ app.put('/lessons/:id', async (req, res) => {
       return res.status(400).json({ error: 'space must be a number' });
     }
 
-    const db = await getDb();
+    const filter = { id: id };
+
     const result = await db.collection('lessons').findOneAndUpdate(
-      { id: idParam },            // lessons in seed use "id" as a string like "Art-Hen-70"
+      filter,
       { $set: body },
-      { returnDocument: 'after' } // return updated doc
+      { returnDocument: 'after' }
     );
 
     if (!result.value) {
-      return res.status(404).json({ error: 'Lesson not found', tried: idParam });
+      return res.status(404).json({ error: 'Lesson not found', tried: id });
     }
 
     res.json({ ok: true, lesson: result.value });
@@ -133,8 +150,8 @@ app.put('/lessons/:id', async (req, res) => {
   }
 });
 
-// Simple image file middleware (optional)
-// Serves files from /public/images/:file if present
+/* ------------ Static images (optional) ------------ */
+
 app.get('/images/:file', (req, res) => {
   const filePath = path.join(__dirname, 'public', 'images', req.params.file);
   fs.stat(filePath, (err, stats) => {
@@ -145,7 +162,7 @@ app.get('/images/:file', (req, res) => {
   });
 });
 
-// Root route help
+// Root route helper
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
@@ -161,13 +178,10 @@ app.get('/', (req, res) => {
 
 /* ------------ 404 & Error handlers ------------ */
 
-// 404
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found', path: req.originalUrl });
 });
 
-// Central error handler
-// (Note: keep the 4 args signature)
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
@@ -185,10 +199,9 @@ app.use((err, req, res, next) => {
     });
   } catch (err) {
     console.error('❌ MongoDB failed to initialise:', err.message || err);
-    // Start the HTTP server anyway so /health can report the problem
     app.listen(PORT, () => {
       console.log(`🚀 Server running (degraded) on http://localhost:${PORT}`);
-      console.log('   Health will report the Mongo error until fixed.');
+      console.log('   /health will report the Mongo error until it’s fixed.');
     });
   }
 })();
