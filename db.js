@@ -14,18 +14,20 @@ let db;
  */
 async function initMongo() {
   if (db) return db;
+
   if (!MONGODB_URI) {
-    throw new Error('MONGODB_URI is missing – set it in your .env or Render env vars.');
+    throw new Error('MONGODB_URI is missing – set it in your .env file.');
   }
 
   client = new MongoClient(MONGODB_URI, {
-    // Reasonable timeouts so your app doesn't hang forever
     serverSelectionTimeoutMS: 20000,
     socketTimeoutMS: 30000,
   });
 
   await client.connect();
   db = client.db(DB_NAME);
+
+  console.log(`✅ Connected to MongoDB database "${DB_NAME}"`);
   return db;
 }
 
@@ -40,7 +42,7 @@ function getDb() {
 }
 
 /**
- * Close the underlying client (useful for tests/scripts).
+ * Close the underlying client (not really needed for dev, but handy for tests).
  */
 async function closeMongo() {
   if (client) {
