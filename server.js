@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// simple request logger
+// simple request logger for coursework requirement
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -50,7 +50,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// GET /lessons
+// GET /lessons – return all lessons
 app.get('/lessons', async (req, res) => {
   try {
     const db = getDb();
@@ -62,19 +62,19 @@ app.get('/lessons', async (req, res) => {
   }
 });
 
-// GET /search?query=...
-// search in topic, location, and optionally by numeric price/space
+// GET /search?query=... – full-text-ish search for challenge marks
 app.get('/search', async (req, res) => {
   try {
     const db = getDb();
     const raw = (req.query.query || '').trim();
 
+    // empty query => return all lessons
     if (!raw) {
       const all = await db.collection('lessons').find({}).toArray();
       return res.json(all);
     }
 
-    const regex = new RegExp(raw, 'i');
+    const regex = new RegExp(raw, 'i'); // case-insensitive
     const maybeNumber = Number(raw);
     const numFilter =
       !Number.isNaN(maybeNumber)
@@ -97,7 +97,7 @@ app.get('/search', async (req, res) => {
   }
 });
 
-// POST /orders
+// POST /orders – save new order
 // body: { name, phone, items: [{ id, qty }] }
 app.post('/orders', async (req, res) => {
   try {
@@ -141,15 +141,18 @@ app.put('/lessons/:id', async (req, res) => {
       return res.status(400).json({ error: 'Missing "id" parameter in URL' });
     }
 
+    // ignore id in body if sent
     if ('id' in body) {
       delete body.id;
     }
 
+    // normalise "spaces" -> "space"
     if (typeof body.spaces === 'number' && typeof body.space !== 'number') {
       body.space = body.spaces;
       delete body.spaces;
     }
 
+    // only allow these fields
     const allowed = ['topic', 'location', 'price', 'space'];
     for (const key of Object.keys(body)) {
       if (!allowed.includes(key)) {
@@ -157,6 +160,7 @@ app.put('/lessons/:id', async (req, res) => {
       }
     }
 
+    // basic type checks
     if ('price' in body && typeof body.price !== 'number') {
       return res.status(400).json({ error: 'price must be a number' });
     }
@@ -166,24 +170,29 @@ app.put('/lessons/:id', async (req, res) => {
 
     const filter = { id: id };
 
-    const result = await db.collection('lessons').findOneAndUpdate(
+    // safe: updateOne then findOne
+    const updateResult = await db.collection('lessons').updateOne(
       filter,
-      { $set: body },
-      { returnDocument: 'after' }
+      { $set: body }
     );
 
-    if (!result.value) {
+    if (updateResult.matchedCount === 0) {
       return res.status(404).json({ error: 'Lesson not found', tried: id });
     }
 
-    res.json({ ok: true, lesson: result.value });
+    const updatedLesson = await db.collection('lessons').findOne(filter);
+
+    res.json({ ok: true, lesson: updatedLesson });
   } catch (err) {
     console.error('PUT /lessons/:id error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      error: 'Internal server error',
+      details: err.message || String(err)
+    });
   }
 });
 
-/* ------------ Static images (optional) ------------ */
+/* ------------ Static images (middleware requirement) ------------ */
 
 app.get('/images/:file', (req, res) => {
   const filePath = path.join(__dirname, 'public', 'images', req.params.file);
