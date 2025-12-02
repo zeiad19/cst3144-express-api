@@ -62,7 +62,7 @@ app.get('/lessons', async (req, res) => {
   }
 });
 
-// GET /search?query=... – full-text-ish search for challenge marks
+// GET /search?query= – search lessons by topic, location, price, or space
 app.get('/search', async (req, res) => {
   try {
     const db = getDb();
@@ -126,7 +126,7 @@ app.post('/orders', async (req, res) => {
   }
 });
 
-/* ------------ PUT /lessons/:id ------------ */
+/*  PUT /lessons/:id */
 /*
   PUT /lessons/Some-Id
   body: { space: 4 }   // or topic/location/price
@@ -192,7 +192,6 @@ app.put('/lessons/:id', async (req, res) => {
   }
 });
 
-/* ------------ Static images (middleware requirement) ------------ */
 
 app.get('/images/:file', (req, res) => {
   const filePath = path.join(__dirname, 'public', 'images', req.params.file);
@@ -219,7 +218,7 @@ app.get('/', (req, res) => {
   });
 });
 
-/* ------------ 404 & Error handlers ------------ */
+/* Error handlers */
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found', path: req.originalUrl });
@@ -230,7 +229,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-/* ------------ Start server ------------ */
+/* Start server */
 
 (async () => {
   try {
