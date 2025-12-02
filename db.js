@@ -10,7 +10,7 @@ let db;
 
 /**
  * Initialise a single MongoDB client and cache the db handle.
- * Call this once on server start.
+  * This should be called once at server startup.
  */
 async function initMongo() {
   if (db) return db;
