@@ -32,7 +32,7 @@ Updates the `space` value of the selected lesson.
 
 ---
 
-## 🗄 Database
+##  Database
 MongoDB Atlas  
 Database: `cst3144`  
 Collections:
@@ -41,7 +41,7 @@ Collections:
 
 ---
 
-## ▶ Running locally
+## Running locally
 
 1. Clone the repo  
 2. Create `.env` file:
@@ -57,7 +57,7 @@ Server runs on port **3000** by default (Render overrides to their assigned port
 
 ---
 
-## 📦 Included in submission
+##  Included in submission
 - Postman collection  
 - MongoDB exports (lessons + orders)  
 - Source code  
